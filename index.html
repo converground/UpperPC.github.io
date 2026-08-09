@@ -218,6 +218,47 @@
             margin-top: 0.6rem;
             line-height: 1.45;
         }
+        .url-row {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            align-items: center;
+        }
+        .url-row input[type="url"] {
+            flex: 1;
+            min-width: 0;
+            background: #0f3460;
+            color: #eee;
+            border: 1px solid #2a2a55;
+            border-radius: 8px;
+            padding: 0.55rem 0.8rem;
+            font-size: 0.85rem;
+        }
+        .url-row input::placeholder { color: #777; }
+        .url-hint { font-size: 0.72rem; color: #666; margin-top: 0.4rem; }
+        .url-row {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.9rem;
+            flex-wrap: wrap;
+        }
+        .url-row input[type="url"] {
+            flex: 1;
+            min-width: 200px;
+            padding: 0.6rem 0.9rem;
+            border: 1px solid #2a2a55;
+            border-radius: 8px;
+            background: #0f3460;
+            color: #eee;
+            font-size: 0.9rem;
+        }
+        .url-row input[type="url"]:focus { outline: none; border-color: #e94560; }
+        .url-hint {
+            font-size: 0.75rem;
+            color: #777;
+            margin-top: 0.4rem;
+            flex-basis: 100%;
+        }
         @media (max-width: 600px) {
             .preview-grid { grid-template-columns: 1fr; }
             body { padding: 1rem; }
@@ -242,6 +283,12 @@
                 <p class="drop-zone-hint">Acepta archivos .webp</p>
             </div>
             <input type="file" id="fileInput" accept=".webp,image/webp">
+
+            <div class="url-row">
+                <input type="url" id="urlInputConvert" placeholder="https://pegas, …o la URL de una imagen">
+                <button class="btn btn-secondary" style="font-size:0.8rem;padding:0.5rem 1rem;" onclick="loadUrl('convert')">Cargar URL</button>
+            </div>
+            <p class="url-hint">La imagen se procesa en tu equipo; la URL solo se lee.</p>
 
             <div class="preview-area" id="previewConvert">
                 <div class="preview-grid">
@@ -269,6 +316,12 @@
                 <p class="drop-zone-hint">Acepta PNG, WEBP, JPG...</p>
             </div>
             <input type="file" id="fileInputBg" accept="image/*">
+
+            <div class="url-row">
+                <input type="url" id="urlInputBg" placeholder="https://…, o pega la URL de una imagen">
+                <button class="btn btn-secondary" style="font-size:0.8rem;padding:0.5rem 1rem;" onclick="loadUrl('bg')">Cargar URL</button>
+            </div>
+            <p class="url-hint">La imagen se procesa en tu equipo; la URL solo se lee.</p>
 
             <div class="preview-area" id="previewBg">
                 <div class="preview-grid">
@@ -360,8 +413,8 @@
         fileInput.addEventListener('change', (e) => { if (e.target.files[0]) handleConvert(e.target.files[0]); });
 
         function handleConvert(file) {
-            if (!file.type.includes('webp') && !file.name.endsWith('.webp')) {
-                alert('Por favor selecciona un archivo .webp');
+            if (!file.type.startsWith('image/')) {
+                alert('Por favor selecciona un archivo de imagen');
                 return;
             }
             currentFile = file;
@@ -383,7 +436,8 @@
             if (!currentFile) return;
             const canvas = document.getElementById('resultCanvasConv');
             const link = document.createElement('a');
-            link.download = currentFile.name.replace('.webp', '.png');
+            const base = currentFile.name.replace(/\.[^.]+$/, '') || 'imagen';
+            link.download = base + '.png';
             link.href = canvas.toDataURL('image/png');
             link.click();
         }
@@ -406,6 +460,9 @@
             if (e.dataTransfer.files[0]) handleBgUpload(e.dataTransfer.files[0]);
         });
         fileInputBg.addEventListener('change', (e) => { if (e.target.files[0]) handleBgUpload(e.target.files[0]); });
+
+        document.getElementById('urlInputConvert').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadUrl('convert'); });
+        document.getElementById('urlInputBg').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadUrl('bg'); });
 
         let bgMethod = 'ai';
         let aiModule = null;
@@ -441,6 +498,70 @@
                 else autoDetectBgColor();
             };
             img.src = URL.createObjectURL(file);
+        }
+
+        // --- Cargar imagen desde una URL ---
+        function loadUrl(panel) {
+            const id = panel === 'convert' ? 'urlInputConvert' : 'urlInputBg';
+            const val = document.getElementById(id).value.trim();
+            if (!val) { alert('Pega primero la URL de la imagen.'); return; }
+            tryLoadImageUrl(val, panel, 0);
+        }
+
+        function tryLoadImageUrl(url, panel, attempt) {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => finishUrlImage(panel, url, img);
+            img.onerror = () => {
+                if (attempt === 0) {
+                    // Reintento a través de un lector remoto con CORS abierto (solo lectura).
+                    const proxy = 'https://wsrv.nl/?url=' + encodeURIComponent(url) + '&output=png';
+                    tryLoadImageUrl(proxy, panel, 1);
+                } else {
+                    alert('No se pudo cargar la imagen desde esa URL.\nMotivos posibles: no es una imagen, o el sitio bloquea el acceso directo. Prueba otra URL o sube el archivo.');
+                }
+            };
+            img.src = url;
+        }
+
+        function finishUrlImage(panel, url, img) {
+            if (!img.width || !img.height) { alert('La imagen cargada no tiene dimensiones válidas.'); return; }
+            let base = (url.split('/').pop().split('#')[0].split('?')[0] || 'imagen');
+            base = base.replace(/\.(png|jpe?g|webp|gif|bmp|avif)$/i, '') || 'imagen';
+            const snap = document.createElement('canvas');
+            snap.width = img.naturalWidth || img.width;
+            snap.height = img.naturalHeight || img.height;
+            snap.getContext('2d').drawImage(img, 0, 0);
+            const dataURL = snap.toDataURL('image/png');
+            if (panel === 'convert') {
+                currentFile = { name: base + '.png' };
+                document.getElementById('originalImgConv').src = dataURL;
+                const canvas = document.getElementById('resultCanvasConv');
+                canvas.width = snap.width;
+                canvas.height = snap.height;
+                canvas.getContext('2d').drawImage(snap, 0, 0);
+                document.getElementById('previewConvert').classList.add('visible');
+            } else {
+                currentFileBg = { name: base + '.png', src: dataURL };
+                originalImageBg = img;
+                document.getElementById('originalImgBg').src = dataURL;
+                document.getElementById('previewBg').classList.add('visible');
+                if (bgMethod === 'ai') runAI();
+                else autoDetectBgColor();
+            }
+            resetUrlInput(panel === 'convert' ? 'urlInputConvert' : 'urlInputBg');
+        }
+
+        function resetUrlInput(id) {
+            document.getElementById(id).value = '';
+        }
+
+        function sourceImageDataURL() {
+            const c = document.createElement('canvas');
+            c.width = originalImageBg.width;
+            c.height = originalImageBg.height;
+            c.getContext('2d').drawImage(originalImageBg, 0, 0);
+            return c.toDataURL('image/png');
         }
 
         document.getElementById('tolerance').addEventListener('input', (e) => {
@@ -629,13 +750,11 @@
             env.allowLocalModels = false;
             env.useBrowserCache = true;
 
-            const webgpuOK = navigator.gpu && navigator.gpu.requestAdapter &&
-                !!(await navigator.gpu.requestAdapter().catch(() => null));
-
-            const attempts = [];
-            attempts.push({ device: 'wasm', dtype: 'int8', label: 'cuantizado (ligero)' });
-            if (webgpuOK) attempts.push({ device: 'webgpu', dtype: 'fp32', label: 'GPU (más rápido)' });
-            attempts.push({ device: 'wasm', dtype: 'fp32', label: 'compatibilidad' });
+            const attempts = [
+                { device: 'wasm', dtype: 'q8', label: 'cuantizado (ligero)' },
+                { device: 'wasm', dtype: 'int8', label: 'cuantizado (alternativo)' },
+                { device: 'wasm', dtype: 'fp32', label: 'compatibilidad' }
+            ];
 
             let lastError = null;
             for (const att of attempts) {
@@ -645,7 +764,7 @@
                         device: att.device,
                         dtype: att.dtype,
                         progress_callback: (p) => {
-                            if (p.status === 'progress' && p.total) {
+                            if (p && p.status === 'progress' && p.total) {
                                 const pct = 10 + Math.round((p.loaded / p.total) * 75);
                                 setAIProgress(pct, `Descargando ${p.file || 'modelo'}… ${Math.round(p.loaded / p.total * 100)}%`);
                             }
@@ -735,12 +854,21 @@
                 const { RawImage } = aiModule;
 
                 setAIProgress(90, 'Analizando la imagen… reconociendo objeto y fondo');
-                const blobUrl = URL.createObjectURL(currentFileBg);
+                let sourceUrl;
+                let tempUrl = null;
+                if (currentFileBg instanceof File || currentFileBg instanceof Blob) {
+                    tempUrl = URL.createObjectURL(currentFileBg);
+                    sourceUrl = tempUrl;
+                } else if (currentFileBg && currentFileBg.src) {
+                    sourceUrl = currentFileBg.src;
+                } else {
+                    sourceUrl = sourceImageDataURL();
+                }
                 let img;
                 try {
-                    img = await RawImage.fromURL(blobUrl);
+                    img = await RawImage.fromURL(sourceUrl);
                 } finally {
-                    URL.revokeObjectURL(blobUrl);
+                    if (tempUrl) URL.revokeObjectURL(tempUrl);
                 }
 
                 const { pixel_values } = await processor(img);
@@ -763,7 +891,8 @@
                 setTimeout(hideAIProgress, 800);
             } catch (e) {
                 console.error(e);
-                setAIProgress(0, 'No se pudo cargar la IA: ' + (e.message || 'revisa tu conexión a internet.'));
+                const cause = (e && e.message) ? (e.name ? e.name + ': ' : '') + e.message : String(e);
+                setAIProgress(0, 'No se pudo cargar la IA: ' + cause + ' (revisa tu conexión a internet.)');
             } finally {
                 aiRunning = false;
                 setAIBusy(false);
